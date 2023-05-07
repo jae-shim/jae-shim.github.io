@@ -1,3 +1,3 @@
 layout: page
 title: "height-maps"
-permalink: "/420"
+permalink: "/420/height"
