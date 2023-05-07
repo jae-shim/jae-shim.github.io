@@ -1,3 +1,3 @@
 layout: page
 title: "raytracer"
-permalink: /raytracer.html
+permalink: "/420/raytracer.html"

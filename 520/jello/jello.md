@@ -1,3 +1,3 @@
 layout: page
 title: "jello"
-permalink: /jello.html
+permalink: "/520/jello.html"
