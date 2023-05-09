@@ -195,7 +195,7 @@ var REMOTE_PACKAGE_SIZE = metadata['remote_package_size'];
     }
 
     }
-    loadPackage({"files": [{"filename": "/SIGGRAPH.scene", "start": 0, "end": 494678}, {"filename": "/cornell.scene", "start": 494678, "end": 494798}, {"filename": "/snow.scene", "start": 494798, "end": 816416}, {"filename": "/spheres.scene", "start": 816416, "end": 818078}, {"filename": "/table.scene", "start": 818078, "end": 878124}, {"filename": "/test1.scene", "start": 878124, "end": 878244}, {"filename": "/test2.scene", "start": 878244, "end": 879059}, {"filename": "/toy.scene", "start": 879059, "end": 1235646}], "remote_package_size": 1235646});
+    loadPackage({"files": [{"filename": "/test2.scene", "start": 0, "end": 815}], "remote_package_size": 815});
 
   })();
 
