@@ -1,0 +1,104 @@
+<!doctype html>
+
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>WebGPU Life</title>
+</head>
+
+<body>
+    <canvas width="512" height="512"></canvas>
+    <script src="render.js"></script>
+    <script type="module">
+        const GRID_SIZE = 32;
+
+        const canvas = document.querySelector("canvas");
+
+        if (!navigator.gpu) {
+            throw new Error("WebGPU not supported on this browser.");
+        }
+
+        const adapter = await navigator.gpu.requestAdapter();
+        if (!adapter) {
+            throw new Error("No appropriate GPUAdapter found.");
+        }
+
+        const device = await adapter.requestDevice();
+
+        const context = canvas.getContext("webgpu");
+        const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+        context.configure({
+            device: device,
+            format: canvasFormat,
+        });
+
+        const bindGroupLayout = device.createBindGroupLayout({
+            label: "Cell Bind Group Layout",
+            entries: [{
+                binding: 0,
+                visibility: GPUShaderStage.FRAGMENT,
+                buffer: {} // Time uniform buffer
+            }]
+        });
+
+        const pipelineLayout = device.createPipelineLayout({
+            label: "Cell Pipeline Layout",
+            bindGroupLayouts: [bindGroupLayout],
+        });
+
+        const [vertices, vertexBuffer, cellPipeline] = createPipeline(device, canvasFormat, pipelineLayout);
+
+        const d = new Date();
+
+        let begin = d.getTime();
+
+        let end = d.getTime();
+
+        const [uniformBuffer] = createUniformBuffers(device, (end - begin) / 1000.0);
+
+        const bindGroups = [
+            device.createBindGroup({
+                label: "Cell renderer bind group A",
+                layout: bindGroupLayout,
+                entries: [{
+                    binding: 0,
+                    resource: { buffer: uniformBuffer }
+                }],
+            })
+        ];
+
+        const UPDATE_INTERVAL = 200; // Update every 200ms (5 times/sec)
+        let step = 0; // Track how many simulation steps have been run
+
+        function updateGrid() {
+            const encoder = device.createCommandEncoder();
+
+            step++;
+
+            const pass = encoder.beginRenderPass({
+                colorAttachments: [{
+                    view: context.getCurrentTexture().createView(),
+                    loadOp: "clear",
+                    clearValue: { r: 0, g: 0, b: 0.4, a: 1 }, // New line
+                    storeOp: "store",
+                }]
+            });
+
+            pass.setPipeline(cellPipeline);
+            pass.setVertexBuffer(0, vertexBuffer);
+            pass.setBindGroup(0, bindGroups[0]);
+            pass.draw(vertices.length / 2, 1);
+
+            pass.end();
+
+            // Finish the command buffer and immediately submit it.
+            device.queue.submit([encoder.finish()]);
+        }
+
+        // Schedule updateGrid() to run repeatedly
+        setInterval(updateGrid, UPDATE_INTERVAL);
+    </script>
+</body>
+
+</html>
