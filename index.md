@@ -10,3 +10,5 @@ layout: home
 <A href="/420/raytracer/raytracer">Raytracer</A>
 <br>
 <A href="/520/jello/jello">Jello</A>
+<br>
+<A href="/wgpu/life">Game of Life</A>
