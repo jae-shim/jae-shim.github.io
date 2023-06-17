@@ -12,3 +12,5 @@ layout: home
 <A href="/520/jello/jello">Jello</A>
 <br>
 <A href="/wgpu/life">Game of Life</A>
+<br>
+<A href="/wgpu/raymarch">Raymarch</A>
