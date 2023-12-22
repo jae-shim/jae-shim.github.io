@@ -1,3 +1,5 @@
+import fs from "fs";
+
 function createStorageBuffers(device, GRID_SIZE) {
     // Create an array representing the active state of each cell.
     const cellStateArray = new Uint32Array(GRID_SIZE * GRID_SIZE);
@@ -45,29 +47,171 @@ function createUniformBuffers(device, GRID_SIZE) {
 }
 
 function createPipeline(device, canvasFormat, pipelineLayout) {
-    const vertices = new Float32Array([
-        // X,    Y,
-        -0.8, -0.8, // Triangle 1 (Blue)
-        0.8, -0.8,
-        0.8, 0.8,
-
-        -0.8, -0.8, // Triangle 2 (Red)
-        0.8, 0.8,
-        -0.8, 0.8,
+    const triangleVertices = new Float32Array([
+        1.0,  1.0, 0.0,
+        -1.0,  1.0, 0.0,
+        0.0, -1.0, 0.0
     ]);
 
-    const vertexBuffer = device.createBuffer({
-        label: "Cell vertices",
-        size: vertices.byteLength,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    const triangleVertexBuffer = device.createBuffer({
+        label: "Triangle vertices",
+        size: triangleVertices.byteLength,
+        usage: GPUBufferUsage.RAY_TRACING | GPUBufferUsage.COPY_DST
     });
 
-    device.queue.writeBuffer(vertexBuffer, /*bufferOffset=*/0, vertices);
+    device.queue.writeBuffer(triangleVertexBuffer, /*bufferOffset=*/0, triangleVertices);
+
+    const triangleIndices = new Uint32Array([
+        0, 1, 2
+    ]);
+
+    const triangleIndexBuffer = device.createBuffer({
+        label: "Triangle indices",
+        size: triangleIndices.byteLength,
+        usage: GPUBufferUsage.RAY_TRACING | GPUBufferUsage.COPY_DST
+    });
+
+    device.queue.writeBuffer(triangleIndexBuffer, /*bufferOffset=*/0, triangleIndices);
+
+    let encoder = device.createCommandEncoder();
+
+    const geometryContainer = device.createRayTracingAccelerationContainer({
+        level: "bottom",
+        flags: GPURayTracingAccelerationContainerFlag.PREFER_FAST_TRACE,
+        geometries: [
+            {
+                type: "triangles", // the geometry kind of the vertices (triangles or aabbs)
+                vertex: {
+                    buffer: triangleVertexBuffer, // our GPU buffer containing the vertices
+                    format: "float3", // one vertex is made up of 3 floats
+                    stride: 3 * Float32Array.BYTES_PER_ELEMENT, // the byte stride between each vertex
+                    count: triangleVertices.length, // the total amount of vertices
+                },
+                index: {
+                    buffer: triangleIndexBuffer, // (optional) the index buffer to use
+                    format: "uint32", // (optional) the format of the index buffer (Uint32Array)
+                    count: triangleIndices.length // the total amount of indices
+                }
+            }
+        ]
+    });
+
+    device.queue.submit([encoder.finish()]);
+
+    encoder = device.createCommandEncoder();
+
+    const instanceContainer = device.createRayTracingAccelerationContainer({
+        level: "top",
+        flags: GPURayTracingAccelerationContainerFlag.PREFER_FAST_TRACE,
+        instances: [
+            {
+                flags: GPURayTracingAccelerationInstanceFlag.TRIANGLE_CULL_DISABLE, // disable back-face culling
+                mask: 0xFF, // in the shader, you can cull objects based on their mask
+                instanceId: 0, // a custom Id which you can use to identify an object in the shaders
+                instanceOffset: 0x0, // unused
+                transform: { // defines how to position the instance in the world
+                    translation: { x: 0, y: 0, z: 0 },
+                    rotation: { x: 0, y: 0, z: 0 },
+                    scale: { x: 1, y: 1, z: 1 }
+                },
+                geometryContainer: geometryContainer // reference to a geometry container
+            }
+        ]
+    });
+
+    device.queue.submit([encoder.finish()]);
+
+    const pixelBufferSize = window.width * window.height * 4 * Float32Array.BYTES_PER_ELEMENT;
+
+    const pixelBuffer = device.createBuffer({
+        label: "Pixels",
+        size: pixelBufferSize,
+        usage: GPUBufferUsage.STORAGE
+    });
+
+    const rtBindGroupLayout = device.createBindGroupLayout({
+        bindings: [
+            // the first binding will be the acceleration container
+            {
+                binding: 0,
+                visibility: GPUShaderStage.RAY_GENERATION,
+                type: "acceleration-container"
+            },
+            // the second binding will be the pixel buffer
+            {
+                binding: 1,
+                visibility: GPUShaderStage.RAY_GENERATION,
+                type: "storage-buffer"
+            }
+        ]
+    });
+
+    const rtBindGroup = device.createBindGroup({
+        layout: rtBindGroupLayout,
+        bindings: [
+            {
+                binding: 0,
+                accelerationContainer: instanceContainer,
+                offset: 0,
+                size: 0
+            },
+            {
+                binding: 1,
+                buffer: pixelBuffer,
+                offset: 0,
+                size: pixelBufferSize
+            }
+        ]
+    });
+
+    const genShaderModule = device.createShaderModule({
+        label: "Ray Generation shader",
+        code: fs.readFileSync(`./ray.rgen`, "utf-8") `
+        #version 460
+        #extension GL_EXT_ray_tracing : enable
+        #pragma shader_stage(raygen)
+        
+        struct RayPayload { vec3 color; };
+        layout(location = 0) rayPayloadEXT RayPayload payload;
+        
+        layout(set = 0, binding = 0) uniform accelerationStructureEXT acc;
+        layout(set = 0, binding = 1, std140) buffer PixelBuffer {
+            vec4 pixels[];
+        } pixelBuffer;
+        
+        void main() {
+            ivec2 ipos = ivec2(gl_LaunchIDEXT.xy);
+            const ivec2 resolution = ivec2(gl_LaunchSizeEXT.xy);
+            
+            vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + vec2(0.5);
+            
+            vec2 d = (pixelCenter / vec2(gl_LaunchSizeEXT.xy)) * 2.0 - 1.0;
+            float aspectRatio = float(gl_LaunchSizeEXT.x) / float(gl_LaunchSizeEXT.y);
+            
+            vec3 rayOrigin = vec3(0, 0, -1.5);
+            vec3 rayDir = normalize(vec3(d.x * aspectRatio, -d.y, 1));
+            
+            uint sbtOffset = 0;
+            uint sbtStride = 0;
+            uint missIndex = 0;
+            payload.color = vec3(0);
+            traceRayEXT(
+                acc, gl_RayFlagsOpaqueEXT, 0xff,
+                sbtOffset, sbtStride, missIndex,
+                rayOrigin, 0.001, rayDir, 100.0,
+                0
+            );
+            
+            const uint pixelIndex = ipos.y * resolution.x + ipos.x;
+            pixelBuffer.pixels[pixelIndex] = vec4(payload.color, 1.0);
+        }
+        `
+    });
 
     const vertexBufferLayout = {
         arrayStride: 8,
         attributes: [{
-            format: "float32x2",
+            format: "float32x3",
             offset: 0,
             shaderLocation: 0, // Position, see vertex shader
         }],

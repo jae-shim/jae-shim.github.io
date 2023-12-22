@@ -1,0 +1,38 @@
+#version 460
+#extension GL_EXT_ray_tracing : enable
+#pragma shader_stage(raygen)
+
+struct RayPayload { vec3 color; };
+layout(location = 0) rayPayloadEXT RayPayload payload;
+
+layout(set = 0, binding = 0) uniform accelerationStructureEXT acc;
+layout(set = 0, binding = 1, std140) buffer PixelBuffer {
+    vec4 pixels[];
+} pixelBuffer;
+
+void main() {
+    ivec2 ipos = ivec2(gl_LaunchIDEXT.xy);
+    const ivec2 resolution = ivec2(gl_LaunchSizeEXT.xy);
+
+    vec2 pixelCenter = vec2(gl_LaunchIDEXT.xy) + vec2(0.5);
+
+    vec2 d = (pixelCenter / vec2(gl_LaunchSizeEXT.xy)) * 2.0 - 1.0;
+    float aspectRatio = float(gl_LaunchSizeEXT.x) / float(gl_LaunchSizeEXT.y);
+
+    vec3 rayOrigin = vec3(0, 0, -1.5);
+    vec3 rayDir = normalize(vec3(d.x * aspectRatio, -d.y, 1));
+
+    uint sbtOffset = 0;
+    uint sbtStride = 0;
+    uint missIndex = 0;
+    payload.color = vec3(0);
+    traceRayEXT(
+        acc, gl_RayFlagsOpaqueEXT, 0xff,
+        sbtOffset, sbtStride, missIndex,
+        rayOrigin, 0.001, rayDir, 100.0,
+        0
+    );
+
+    const uint pixelIndex = ipos.y * resolution.x + ipos.x;
+    pixelBuffer.pixels[pixelIndex] = vec4(payload.color, 1.0);
+}
